@@ -4,76 +4,77 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Virtual Try-On</title>
-  <script src="https://cdn.jsdelivr.net/npm/jeelizglassesfilter@1.2.4/dist/jeelizGlassesFilter.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@200;300;400&display=swap');
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{--cream:#f5f0e8;--ink:#1a1612;--warm:#c8a96e;--glass:rgba(245,240,232,0.07);--border:rgba(200,169,110,0.25)}
     html,body{width:100%;height:100%;background:var(--ink);overflow:hidden;font-family:'Jost',sans-serif;color:var(--cream)}
 
-    /* GATE — always on top, z-index 999 */
-    #cam-gate{position:fixed;inset:0;z-index:999;background:var(--ink);display:flex;align-items:center;justify-content:center}
-    #cam-gate.gone{display:none!important}
-    #cam-card{background:linear-gradient(145deg,#221d18,#1a1612);border:1px solid var(--border);border-radius:24px;padding:44px 36px 36px;max-width:340px;width:calc(100% - 48px);text-align:center;box-shadow:0 32px 80px rgba(0,0,0,.6);animation:cardIn .5s cubic-bezier(.22,1,.36,1) both}
-    @keyframes cardIn{from{opacity:0;transform:translateY(24px) scale(.96)}to{opacity:1;transform:none}}
-    #cam-icon{width:72px;height:72px;background:rgba(200,169,110,.12);border:1px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 24px;font-size:30px;animation:pulse-ring 2.5s ease-in-out infinite}
-    @keyframes pulse-ring{0%,100%{box-shadow:0 0 0 0 rgba(200,169,110,.3)}50%{box-shadow:0 0 0 12px rgba(200,169,110,0)}}
+    #video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;transform:scaleX(-1);display:none}
+    #overlay{position:fixed;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+    #vignette{position:fixed;inset:0;z-index:3;pointer-events:none;background:radial-gradient(ellipse at center,transparent 35%,rgba(26,22,18,0.65) 100%)}
+
+    /* CAMERA GATE */
+    #cam-gate{position:fixed;inset:0;z-index:1000;background:var(--ink);display:flex;align-items:center;justify-content:center}
+    #cam-card{background:linear-gradient(145deg,#221d18,#1a1612);border:1px solid var(--border);border-radius:24px;padding:44px 36px 36px;max-width:340px;width:calc(100% - 48px);text-align:center;box-shadow:0 32px 80px rgba(0,0,0,0.6)}
+    #cam-icon{width:72px;height:72px;background:rgba(200,169,110,0.12);border:1px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 24px;font-size:30px;animation:pulse-ring 2.5s ease-in-out infinite}
+    @keyframes pulse-ring{0%,100%{box-shadow:0 0 0 0 rgba(200,169,110,0.3)}50%{box-shadow:0 0 0 12px rgba(200,169,110,0)}}
     #cam-title{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;margin-bottom:10px}
     #cam-title em{color:var(--warm);font-style:italic}
-    #cam-desc{font-size:12px;font-weight:300;letter-spacing:.06em;color:rgba(245,240,232,.5);line-height:1.7;margin-bottom:28px}
-    #cam-btn{width:100%;padding:14px;background:var(--warm);color:var(--ink);border:none;border-radius:12px;font-family:'Jost',sans-serif;font-size:12px;font-weight:400;letter-spacing:.22em;text-transform:uppercase;cursor:pointer;transition:all .2s}
+    #cam-desc{font-size:12px;color:rgba(245,240,232,0.5);line-height:1.7;margin-bottom:28px;letter-spacing:0.04em}
+    #cam-btn{width:100%;padding:14px;background:var(--warm);color:var(--ink);border:none;border-radius:12px;font-family:'Jost',sans-serif;font-size:12px;letter-spacing:0.22em;text-transform:uppercase;cursor:pointer;transition:all 0.2s}
     #cam-btn:hover{background:#d4b87a;transform:translateY(-1px)}
-    #cam-btn:disabled{opacity:.6;cursor:wait}
-    #cam-note{margin-top:14px;font-size:10px;letter-spacing:.1em;color:rgba(245,240,232,.28)}
-    #denied-msg{display:none;margin-top:16px;padding:12px 14px;background:rgba(200,50,50,.12);border:1px solid rgba(200,50,50,.3);border-radius:10px;font-size:11px;color:#e08080;line-height:1.6}
+    #cam-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+    #cam-note{margin-top:14px;font-size:10px;color:rgba(245,240,232,0.28);letter-spacing:0.08em}
+    #denied-msg{display:none;margin-top:16px;padding:12px;background:rgba(200,50,50,0.12);border:1px solid rgba(200,50,50,0.3);border-radius:10px;font-size:11px;color:#e08080;line-height:1.6}
 
     /* LOADING */
-    #loading-screen{position:fixed;inset:0;z-index:50;background:var(--ink);display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;transition:opacity .8s}
+    #loading-screen{position:fixed;inset:0;z-index:900;background:var(--ink);display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;transition:opacity 0.6s}
     #loading-screen.show{display:flex}
     #loading-screen.fade{opacity:0;pointer-events:none}
-    #load-title{font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;letter-spacing:.1em}
+    #load-title{font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;letter-spacing:0.1em}
     #load-title em{color:var(--warm);font-style:italic}
-    #load-sub{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:rgba(245,240,232,.38)}
-    #load-bar-wrap{width:160px;height:1px;background:rgba(245,240,232,.1);overflow:hidden}
-    #load-bar{height:100%;width:0%;background:var(--warm);transition:width .35s ease}
+    #load-sub{font-size:10px;letter-spacing:0.3em;text-transform:uppercase;color:rgba(245,240,232,0.38)}
+    #load-bar-wrap{width:160px;height:1px;background:rgba(245,240,232,0.1);overflow:hidden}
+    #load-bar{height:100%;width:0%;background:var(--warm);transition:width 0.3s ease}
 
-    /* AR */
-    #canvas{position:fixed;inset:0;width:100%!important;height:100%!important;object-fit:cover;z-index:1;display:none}
-    #canvas.show{display:block}
-    #vignette{position:fixed;inset:0;z-index:2;pointer-events:none;background:radial-gradient(ellipse at center,transparent 35%,rgba(26,22,18,.65) 100%)}
-    #topbar{position:fixed;top:0;left:0;right:0;z-index:10;padding:18px 24px;display:none;align-items:center;justify-content:space-between;background:linear-gradient(to bottom,rgba(26,22,18,.88) 0%,transparent 100%)}
-    #topbar.show{display:flex}
-    #logo{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:300;letter-spacing:.18em;text-transform:uppercase}
+    /* TOPBAR */
+    #topbar{position:fixed;top:0;left:0;right:0;z-index:10;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(to bottom,rgba(26,22,18,0.88),transparent)}
+    #logo{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:300;letter-spacing:0.18em;text-transform:uppercase}
     #logo span{color:var(--warm);font-style:italic}
-    #status-pill{display:flex;align-items:center;gap:7px;background:var(--glass);border:1px solid var(--border);border-radius:100px;padding:5px 13px;font-size:10px;font-weight:300;letter-spacing:.14em;text-transform:uppercase;backdrop-filter:blur(8px)}
-    #status-dot{width:6px;height:6px;border-radius:50%;background:#555;transition:background .4s}
-    #status-pill.ready #status-dot{background:#7ec87e}
-    #status-pill.looking #status-dot{background:var(--warm);animation:blink 1s ease-in-out infinite}
-    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-    #bottom-panel{position:fixed;bottom:0;left:0;right:0;z-index:10;background:linear-gradient(to top,rgba(26,22,18,.96) 65%,transparent 100%);padding-bottom:env(safe-area-inset-bottom,16px);display:none}
-    #bottom-panel.show{display:block}
-    #cat-tabs{display:flex;padding:14px 16px 0;overflow-x:auto;scrollbar-width:none}
+    #status-pill{display:flex;align-items:center;gap:7px;background:var(--glass);border:1px solid var(--border);border-radius:100px;padding:5px 13px;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;backdrop-filter:blur(8px)}
+    #sdot{width:6px;height:6px;border-radius:50%;background:#555;transition:background 0.4s}
+    #status-pill.ready #sdot{background:#7ec87e}
+    #status-pill.looking #sdot{background:var(--warm);animation:blink 1s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+
+    /* BOTTOM */
+    #bottom-panel{position:fixed;bottom:0;left:0;right:0;z-index:10;background:linear-gradient(to top,rgba(26,22,18,0.96) 65%,transparent)}
+    #cat-tabs{display:flex;padding:14px 16px 0;overflow-x:auto;scrollbar-width:none;gap:0}
     #cat-tabs::-webkit-scrollbar{display:none}
-    .cat-tab{flex-shrink:0;padding:5px 14px;font-size:9px;letter-spacing:.18em;text-transform:uppercase;font-weight:300;cursor:pointer;border-bottom:1px solid transparent;color:rgba(245,240,232,.4);transition:all .2s;white-space:nowrap}
+    .cat-tab{flex-shrink:0;padding:5px 14px;font-size:9px;letter-spacing:0.18em;text-transform:uppercase;font-weight:300;cursor:pointer;border-bottom:1px solid transparent;color:rgba(245,240,232,0.4);transition:all 0.2s;white-space:nowrap}
     .cat-tab.active{color:var(--warm);border-bottom-color:var(--warm)}
     #frames-row{display:flex;gap:10px;padding:12px 16px 20px;overflow-x:auto;scrollbar-width:none}
     #frames-row::-webkit-scrollbar{display:none}
-    .frame-btn{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:9px 12px;border-radius:10px;border:1px solid transparent;background:var(--glass);backdrop-filter:blur(10px);transition:all .2s;min-width:64px}
+    .frame-btn{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:9px 12px;border-radius:10px;border:1px solid transparent;background:var(--glass);backdrop-filter:blur(10px);transition:all 0.2s;min-width:64px}
     .frame-btn:hover{border-color:var(--border);transform:translateY(-2px)}
-    .frame-btn.active{border-color:var(--warm);background:rgba(200,169,110,.14)}
+    .frame-btn.active{border-color:var(--warm);background:rgba(200,169,110,0.14)}
     .frame-icon{width:52px;height:22px;display:block}
-    .frame-name{font-size:8px;font-weight:300;letter-spacing:.14em;text-transform:uppercase;color:rgba(245,240,232,.65)}
+    .frame-name{font-size:8px;font-weight:300;letter-spacing:0.14em;text-transform:uppercase;color:rgba(245,240,232,0.65)}
     .frame-btn.active .frame-name{color:var(--warm)}
-    #hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:8;text-align:center;pointer-events:none;transition:opacity .5s;display:none}
-    #hint.show{display:block}
+
+    #hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:8;text-align:center;pointer-events:none;transition:opacity 0.5s}
     #hint.hidden{opacity:0}
     #hint-icon{font-size:40px;display:block;margin-bottom:10px;animation:float 2.5s ease-in-out infinite}
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-    #hint-text{font-family:'Cormorant Garamond',serif;font-size:15px;font-style:italic;color:rgba(245,240,232,.6)}
-    #capture-btn{position:fixed;right:20px;bottom:175px;z-index:10;width:46px;height:46px;border-radius:50%;border:1px solid var(--border);background:var(--glass);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;cursor:pointer;font-size:19px;transition:all .2s}
-    #capture-btn.show{display:flex}
-    #flash{position:fixed;inset:0;z-index:100;background:white;opacity:0;pointer-events:none;transition:opacity .08s}
-    #flash.on{opacity:.75}
+    #hint-text{font-family:'Cormorant Garamond',serif;font-size:15px;font-style:italic;color:rgba(245,240,232,0.6)}
+
+    #capture-btn{position:fixed;right:20px;bottom:175px;z-index:10;width:46px;height:46px;border-radius:50%;border:1px solid var(--border);background:var(--glass);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:19px;transition:all 0.2s}
+    #capture-btn:hover{background:rgba(200,169,110,0.18);transform:scale(1.08)}
+    #flash{position:fixed;inset:0;z-index:100;background:white;opacity:0;pointer-events:none;transition:opacity 0.08s}
+    #flash.on{opacity:0.75}
   </style>
 </head>
 <body>
@@ -84,8 +85,8 @@
     <div id="cam-title">Allow <em>Camera</em></div>
     <div id="cam-desc">To try on glasses virtually, we need your camera.<br>Your video never leaves your device.</div>
     <button id="cam-btn">Enable Camera &amp; Start</button>
-    <div id="cam-note">🔒 Your camera stays private — never uploaded</div>
-    <div id="denied-msg">Camera was blocked. Click the 🔒 icon in your address bar, set Camera to <strong>Allow</strong>, then reload.</div>
+    <div id="cam-note">🔒 Private — never uploaded or stored</div>
+    <div id="denied-msg">Camera blocked. Click the 🔒 in your address bar → set Camera to <strong>Allow</strong> → reload.</div>
   </div>
 </div>
 
@@ -95,194 +96,274 @@
   <div id="load-bar-wrap"><div id="load-bar"></div></div>
 </div>
 
-<canvas id="canvas"></canvas>
+<video id="video" autoplay muted playsinline></video>
+<canvas id="overlay"></canvas>
 <div id="vignette"></div>
 <div id="flash"></div>
+
 <div id="topbar">
   <div id="logo">Try<span>On</span></div>
-  <div id="status-pill" class="looking"><div id="status-dot"></div><span id="status-text">Loading</span></div>
+  <div id="status-pill" class="looking">
+    <div id="sdot"></div>
+    <span id="stxt">Loading</span>
+  </div>
 </div>
-<div id="hint"><span id="hint-icon">👓</span><div id="hint-text">Look into the camera</div></div>
+
+<div id="hint">
+  <span id="hint-icon">👓</span>
+  <div id="hint-text">Look into the camera</div>
+</div>
+
 <div id="capture-btn">📷</div>
-<div id="bottom-panel"><div id="cat-tabs"></div><div id="frames-row"></div></div>
+
+<div id="bottom-panel">
+  <div id="cat-tabs"></div>
+  <div id="frames-row"></div>
+</div>
 
 <script>
-const CATEGORIES=[{id:'classic',label:'Classic'},{id:'sunglasses',label:'Sunglasses'},{id:'colored',label:'Colored'},{id:'shapes',label:'Shapes'},{id:'sport',label:'Sport'},{id:'retro',label:'Retro'}];
-const ALL_FRAMES=[
-  {id:'wayfarer',cat:'classic',name:'Wayfarer',color:'#111',lensColor:'rgba(30,40,60,0.42)',style:'rect',rx:4},
-  {id:'tortoise',cat:'classic',name:'Tortoise',color:'#6B3A1F',lensColor:'rgba(50,30,10,0.35)',style:'rect',rx:4},
-  {id:'rectangle',cat:'classic',name:'Rectangle',color:'#222',lensColor:'rgba(180,200,220,0.18)',style:'rect',rx:2},
-  {id:'thinmetal',cat:'classic',name:'Thin Metal',color:'#b8b8b8',lensColor:'rgba(200,215,230,0.15)',style:'rect',rx:3},
-  {id:'oval-c',cat:'classic',name:'Oval',color:'#2a1a0e',lensColor:'rgba(200,210,220,0.18)',style:'oval'},
-  {id:'browline',cat:'classic',name:'Browline',color:'#1a1a1a',lensColor:'rgba(180,200,220,0.20)',style:'browline'},
-  {id:'browgold',cat:'classic',name:'Gold Brow',color:'#c8a030',lensColor:'rgba(200,215,230,0.18)',style:'browline'},
-  {id:'rimless',cat:'classic',name:'Rimless',color:'#aaa',lensColor:'rgba(200,220,255,0.12)',style:'rimless'},
-  {id:'darkway',cat:'sunglasses',name:'Dark Way',color:'#111',lensColor:'rgba(8,8,8,0.88)',style:'rect',rx:4},
-  {id:'aviator',cat:'sunglasses',name:'Aviator',color:'#c0a060',lensColor:'rgba(80,110,60,0.50)',style:'teardrop'},
-  {id:'aviblue',cat:'sunglasses',name:'Blue Avi',color:'#999',lensColor:'rgba(40,80,180,0.50)',style:'teardrop'},
-  {id:'shield',cat:'sunglasses',name:'Shield',color:'#111',lensColor:'rgba(10,10,10,0.85)',style:'shield'},
-  {id:'sportwrap',cat:'sunglasses',name:'Wrap',color:'#0a0a0a',lensColor:'rgba(10,10,10,0.82)',style:'sport'},
-  {id:'mirrshield',cat:'sunglasses',name:'Mirror',color:'#888',lensColor:'rgba(100,180,200,0.70)',style:'shield'},
-  {id:'clubblk',cat:'sunglasses',name:'Club',color:'#111',lensColor:'rgba(20,20,20,0.75)',style:'rect',rx:1},
-  {id:'oversized',cat:'sunglasses',name:'Oversized',color:'#222',lensColor:'rgba(15,15,15,0.78)',style:'rect',rx:8,big:true},
-  {id:'avigold',cat:'sunglasses',name:'Gold Mir',color:'#c8a030',lensColor:'rgba(200,160,0,0.65)',style:'teardrop'},
-  {id:'flatbrow',cat:'sunglasses',name:'Flat Top',color:'#111',lensColor:'rgba(10,10,10,0.80)',style:'browline'},
-  {id:'pinkcat',cat:'colored',name:'Pink Cat',color:'#c2185b',lensColor:'rgba(220,60,120,0.38)',style:'cat'},
-  {id:'blurnd',cat:'colored',name:'Blue Rnd',color:'#1565c0',lensColor:'rgba(30,100,220,0.38)',style:'circle'},
-  {id:'orangerct',cat:'colored',name:'Orange',color:'#e65100',lensColor:'rgba(230,100,0,0.38)',style:'rect',rx:5},
-  {id:'greenoval',cat:'colored',name:'Forest',color:'#1b5e20',lensColor:'rgba(30,100,50,0.38)',style:'oval'},
-  {id:'purplecat',cat:'colored',name:'Lilac Cat',color:'#6a1b9a',lensColor:'rgba(140,40,200,0.38)',style:'cat'},
-  {id:'redrnd',cat:'colored',name:'Cherry',color:'#b71c1c',lensColor:'rgba(200,20,20,0.35)',style:'circle'},
-  {id:'yellowrct',cat:'colored',name:'Butter',color:'#f57f17',lensColor:'rgba(240,200,0,0.35)',style:'rect',rx:4},
-  {id:'tealhex',cat:'colored',name:'Teal Hex',color:'#006064',lensColor:'rgba(0,150,160,0.38)',style:'hexagon'},
-  {id:'roseavi',cat:'colored',name:'Rose Avi',color:'#ad1457',lensColor:'rgba(230,80,130,0.42)',style:'teardrop'},
-  {id:'smokernd',cat:'colored',name:'Smoke',color:'#333',lensColor:'rgba(100,100,120,0.50)',style:'circle'},
-  {id:'mintcat',cat:'colored',name:'Mint',color:'#00695c',lensColor:'rgba(0,180,140,0.35)',style:'cat'},
-  {id:'lavrct',cat:'colored',name:'Lavender',color:'#7b1fa2',lensColor:'rgba(160,80,220,0.32)',style:'rect',rx:6},
-  {id:'round',cat:'shapes',name:'Round',color:'#8B6914',lensColor:'rgba(80,50,20,0.32)',style:'circle'},
-  {id:'petite',cat:'shapes',name:'Petite',color:'#111',lensColor:'rgba(20,20,30,0.35)',style:'circle',small:true},
-  {id:'cateye',cat:'shapes',name:'Cat Eye',color:'#3d1a2e',lensColor:'rgba(80,20,60,0.38)',style:'cat'},
-  {id:'catgold',cat:'shapes',name:'Gold Cat',color:'#c8a030',lensColor:'rgba(200,160,20,0.28)',style:'cat'},
-  {id:'hexblue',cat:'shapes',name:'Hexagon',color:'#1a237e',lensColor:'rgba(30,50,200,0.30)',style:'hexagon'},
-  {id:'hexgold',cat:'shapes',name:'Hex Gold',color:'#c8a030',lensColor:'rgba(210,180,50,0.30)',style:'hexagon'},
-  {id:'pentagon',cat:'shapes',name:'Pentagon',color:'#111',lensColor:'rgba(180,200,220,0.20)',style:'pentagon'},
-  {id:'diamond',cat:'shapes',name:'Diamond',color:'#555',lensColor:'rgba(200,220,240,0.20)',style:'diamond'},
-  {id:'ovalblk',cat:'shapes',name:'Oval Blk',color:'#111',lensColor:'rgba(10,10,10,0.60)',style:'oval'},
-  {id:'catpink2',cat:'shapes',name:'Retro Cat',color:'#c2185b',lensColor:'rgba(220,60,120,0.30)',style:'cat',big:true},
-  {id:'sportblk',cat:'sport',name:'Racer',color:'#0d0d0d',lensColor:'rgba(10,10,10,0.80)',style:'sport'},
-  {id:'sportred',cat:'sport',name:'Speed',color:'#b71c1c',lensColor:'rgba(200,20,20,0.55)',style:'sport'},
-  {id:'sportyel',cat:'sport',name:'Volt',color:'#f9a825',lensColor:'rgba(240,200,0,0.52)',style:'sport'},
-  {id:'sportblu',cat:'sport',name:'Cyber',color:'#0d47a1',lensColor:'rgba(30,100,230,0.50)',style:'sport'},
-  {id:'sportgrn',cat:'sport',name:'Trail',color:'#1b5e20',lensColor:'rgba(0,180,80,0.50)',style:'sport'},
-  {id:'gogglesblk',cat:'sport',name:'Goggles',color:'#111',lensColor:'rgba(10,10,10,0.72)',style:'goggles'},
-  {id:'skiora',cat:'sport',name:'Ski',color:'#e65100',lensColor:'rgba(230,140,0,0.55)',style:'goggles'},
-  {id:'skiblu',cat:'sport',name:'Ski Blue',color:'#0d47a1',lensColor:'rgba(30,100,230,0.55)',style:'goggles'},
-  {id:'lennon',cat:'retro',name:'Lennon',color:'#888',lensColor:'rgba(180,200,220,0.25)',style:'circle',small:true},
-  {id:'granny',cat:'retro',name:'Granny',color:'#aaa',lensColor:'rgba(200,220,255,0.18)',style:'oval',small:true},
-  {id:'bugeye',cat:'retro',name:'Bug Eye',color:'#222',lensColor:'rgba(20,20,40,0.55)',style:'circle',big:true},
-  {id:'70stint',cat:'retro',name:'70s Tint',color:'#6B3A1F',lensColor:'rgba(180,120,0,0.42)',style:'rect',rx:8,big:true},
-  {id:'klout',cat:'retro',name:'Klout',color:'#111',lensColor:'rgba(40,40,40,0.65)',style:'hexagon'},
-  {id:'panto',cat:'retro',name:'Panto',color:'#3e2723',lensColor:'rgba(60,30,10,0.32)',style:'oval'},
-  {id:'clubmaster',cat:'retro',name:'Clubmaster',color:'#8B6914',lensColor:'rgba(180,200,220,0.22)',style:'browline'},
-  {id:'teashade',cat:'retro',name:'Teashade',color:'#c0a060',lensColor:'rgba(180,120,0,0.45)',style:'circle',small:true},
-  {id:'steampunk',cat:'retro',name:'Steampunk',color:'#b87333',lensColor:'rgba(180,120,40,0.50)',style:'circle'},
-  {id:'deepdive',cat:'retro',name:'Deep Dive',color:'#37474f',lensColor:'rgba(20,50,80,0.70)',style:'goggles'},
+// ── FRAMES ────────────────────────────────────────────────────────────────
+const CATS=[{id:'classic',label:'Classic'},{id:'sunglasses',label:'Sunglasses'},{id:'colored',label:'Colored'},{id:'shapes',label:'Shapes'},{id:'sport',label:'Sport'},{id:'retro',label:'Retro'}];
+const FRAMES=[
+  {id:'wayfarer',  cat:'classic',    name:'Wayfarer',  color:'#111',    lensColor:'rgba(30,40,60,0.42)',   style:'rect',    rx:4},
+  {id:'tortoise',  cat:'classic',    name:'Tortoise',  color:'#6B3A1F', lensColor:'rgba(50,30,10,0.35)',   style:'rect',    rx:4},
+  {id:'rectangle', cat:'classic',    name:'Rectangle', color:'#222',    lensColor:'rgba(180,200,220,0.18)',style:'rect',    rx:2},
+  {id:'thinmetal', cat:'classic',    name:'Thin Metal',color:'#b8b8b8', lensColor:'rgba(200,215,230,0.15)',style:'rect',    rx:3},
+  {id:'oval-c',    cat:'classic',    name:'Oval',      color:'#2a1a0e', lensColor:'rgba(200,210,220,0.18)',style:'oval'},
+  {id:'browline',  cat:'classic',    name:'Browline',  color:'#1a1a1a', lensColor:'rgba(180,200,220,0.20)',style:'browline'},
+  {id:'browgold',  cat:'classic',    name:'Gold Brow', color:'#c8a030', lensColor:'rgba(200,215,230,0.18)',style:'browline'},
+  {id:'rimless',   cat:'classic',    name:'Rimless',   color:'#aaa',    lensColor:'rgba(200,220,255,0.12)',style:'rimless'},
+  {id:'darkway',   cat:'sunglasses', name:'Dark Way',  color:'#111',    lensColor:'rgba(8,8,8,0.88)',      style:'rect',    rx:4},
+  {id:'aviator',   cat:'sunglasses', name:'Aviator',   color:'#c0a060', lensColor:'rgba(80,110,60,0.50)',  style:'teardrop'},
+  {id:'aviblue',   cat:'sunglasses', name:'Blue Avi',  color:'#999',    lensColor:'rgba(40,80,180,0.50)',  style:'teardrop'},
+  {id:'shield',    cat:'sunglasses', name:'Shield',    color:'#111',    lensColor:'rgba(10,10,10,0.85)',   style:'shield'},
+  {id:'sportwrap', cat:'sunglasses', name:'Wrap',      color:'#0a0a0a', lensColor:'rgba(10,10,10,0.82)',   style:'sport'},
+  {id:'mirrshield',cat:'sunglasses', name:'Mirror',    color:'#888',    lensColor:'rgba(100,180,200,0.70)',style:'shield'},
+  {id:'clubblk',   cat:'sunglasses', name:'Club',      color:'#111',    lensColor:'rgba(20,20,20,0.75)',   style:'rect',    rx:1},
+  {id:'oversized', cat:'sunglasses', name:'Oversized', color:'#222',    lensColor:'rgba(15,15,15,0.78)',   style:'rect',    rx:8,  big:true},
+  {id:'avigold',   cat:'sunglasses', name:'Gold Mir',  color:'#c8a030', lensColor:'rgba(200,160,0,0.65)',  style:'teardrop'},
+  {id:'flatbrow',  cat:'sunglasses', name:'Flat Top',  color:'#111',    lensColor:'rgba(10,10,10,0.80)',   style:'browline'},
+  {id:'pinkcat',   cat:'colored',    name:'Pink Cat',  color:'#c2185b', lensColor:'rgba(220,60,120,0.38)', style:'cat'},
+  {id:'blurnd',    cat:'colored',    name:'Blue Rnd',  color:'#1565c0', lensColor:'rgba(30,100,220,0.38)', style:'circle'},
+  {id:'orangerct', cat:'colored',    name:'Orange',    color:'#e65100', lensColor:'rgba(230,100,0,0.38)',  style:'rect',    rx:5},
+  {id:'greenoval', cat:'colored',    name:'Forest',    color:'#1b5e20', lensColor:'rgba(30,100,50,0.38)',  style:'oval'},
+  {id:'purplecat', cat:'colored',    name:'Lilac Cat', color:'#6a1b9a', lensColor:'rgba(140,40,200,0.38)', style:'cat'},
+  {id:'redrnd',    cat:'colored',    name:'Cherry',    color:'#b71c1c', lensColor:'rgba(200,20,20,0.35)',  style:'circle'},
+  {id:'yellowrct', cat:'colored',    name:'Butter',    color:'#f57f17', lensColor:'rgba(240,200,0,0.35)',  style:'rect',    rx:4},
+  {id:'tealhex',   cat:'colored',    name:'Teal Hex',  color:'#006064', lensColor:'rgba(0,150,160,0.38)',  style:'hexagon'},
+  {id:'roseavi',   cat:'colored',    name:'Rose Avi',  color:'#ad1457', lensColor:'rgba(230,80,130,0.42)', style:'teardrop'},
+  {id:'smokernd',  cat:'colored',    name:'Smoke',     color:'#333',    lensColor:'rgba(100,100,120,0.50)',style:'circle'},
+  {id:'mintcat',   cat:'colored',    name:'Mint',      color:'#00695c', lensColor:'rgba(0,180,140,0.35)',  style:'cat'},
+  {id:'lavrct',    cat:'colored',    name:'Lavender',  color:'#7b1fa2', lensColor:'rgba(160,80,220,0.32)', style:'rect',    rx:6},
+  {id:'round',     cat:'shapes',     name:'Round',     color:'#8B6914', lensColor:'rgba(80,50,20,0.32)',   style:'circle'},
+  {id:'petite',    cat:'shapes',     name:'Petite',    color:'#111',    lensColor:'rgba(20,20,30,0.35)',   style:'circle',  small:true},
+  {id:'cateye',    cat:'shapes',     name:'Cat Eye',   color:'#3d1a2e', lensColor:'rgba(80,20,60,0.38)',   style:'cat'},
+  {id:'catgold',   cat:'shapes',     name:'Gold Cat',  color:'#c8a030', lensColor:'rgba(200,160,20,0.28)', style:'cat'},
+  {id:'hexblue',   cat:'shapes',     name:'Hexagon',   color:'#1a237e', lensColor:'rgba(30,50,200,0.30)',  style:'hexagon'},
+  {id:'hexgold',   cat:'shapes',     name:'Hex Gold',  color:'#c8a030', lensColor:'rgba(210,180,50,0.30)', style:'hexagon'},
+  {id:'pentagon',  cat:'shapes',     name:'Pentagon',  color:'#111',    lensColor:'rgba(180,200,220,0.20)',style:'pentagon'},
+  {id:'diamond',   cat:'shapes',     name:'Diamond',   color:'#555',    lensColor:'rgba(200,220,240,0.20)',style:'diamond'},
+  {id:'ovalblk',   cat:'shapes',     name:'Oval Blk',  color:'#111',    lensColor:'rgba(10,10,10,0.60)',   style:'oval'},
+  {id:'sportblk',  cat:'sport',      name:'Racer',     color:'#0d0d0d', lensColor:'rgba(10,10,10,0.80)',   style:'sport'},
+  {id:'sportred',  cat:'sport',      name:'Speed',     color:'#b71c1c', lensColor:'rgba(200,20,20,0.55)',  style:'sport'},
+  {id:'sportyel',  cat:'sport',      name:'Volt',      color:'#f9a825', lensColor:'rgba(240,200,0,0.52)',  style:'sport'},
+  {id:'sportblu',  cat:'sport',      name:'Cyber',     color:'#0d47a1', lensColor:'rgba(30,100,230,0.50)', style:'sport'},
+  {id:'gogglesblk',cat:'sport',      name:'Goggles',   color:'#111',    lensColor:'rgba(10,10,10,0.72)',   style:'goggles'},
+  {id:'skiora',    cat:'sport',      name:'Ski',       color:'#e65100', lensColor:'rgba(230,140,0,0.55)',  style:'goggles'},
+  {id:'lennon',    cat:'retro',      name:'Lennon',    color:'#888',    lensColor:'rgba(180,200,220,0.25)',style:'circle',  small:true},
+  {id:'granny',    cat:'retro',      name:'Granny',    color:'#aaa',    lensColor:'rgba(200,220,255,0.18)',style:'oval',    small:true},
+  {id:'bugeye',    cat:'retro',      name:'Bug Eye',   color:'#222',    lensColor:'rgba(20,20,40,0.55)',   style:'circle',  big:true},
+  {id:'70stint',   cat:'retro',      name:'70s Tint',  color:'#6B3A1F', lensColor:'rgba(180,120,0,0.42)',  style:'rect',    rx:8,  big:true},
+  {id:'klout',     cat:'retro',      name:'Klout',     color:'#111',    lensColor:'rgba(40,40,40,0.65)',   style:'hexagon'},
+  {id:'panto',     cat:'retro',      name:'Panto',     color:'#3e2723', lensColor:'rgba(60,30,10,0.32)',   style:'oval'},
+  {id:'clubmaster',cat:'retro',      name:'Clubmaster',color:'#8B6914', lensColor:'rgba(180,200,220,0.22)',style:'browline'},
+  {id:'teashade',  cat:'retro',      name:'Teashade',  color:'#c0a060', lensColor:'rgba(180,120,0,0.45)',  style:'circle',  small:true},
+  {id:'steampunk', cat:'retro',      name:'Steampunk', color:'#b87333', lensColor:'rgba(180,120,40,0.50)', style:'circle'},
+  {id:'deepdive',  cat:'retro',      name:'Deep Dive', color:'#37474f', lensColor:'rgba(20,50,80,0.70)',   style:'goggles'},
 ];
 
-function drawGlasses(ctx,f,W,H){
-  const sc=f.big?1.16:f.small?.80:1;
-  const lw=Math.floor(W*.36*sc),lh=Math.floor(H*(f.style==='goggles'?.76:.62)*sc);
-  const cx=W/2,cy=H/2,gap=Math.floor(W*.055);
+// ── DRAW ──────────────────────────────────────────────────────────────────
+function drawGlasses(ctx,frame,W,H){
+  const sc=frame.big?1.16:frame.small?0.80:1;
+  const lw=Math.floor(W*0.36*sc),lh=Math.floor(H*(frame.style==='goggles'?0.76:0.62)*sc);
+  const cx=W/2,cy=H/2,gap=Math.floor(W*0.055);
   const l1x=cx-gap/2-lw,l2x=cx+gap/2,ly=cy-lh/2;
-  ctx.strokeStyle=f.color;ctx.fillStyle=f.lensColor;ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
-  function lens(x,y,w,h,side){
+  ctx.strokeStyle=frame.color;ctx.fillStyle=frame.lensColor;ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+  function lens(x,y,w,h,s){
     ctx.beginPath();
-    if(f.style==='circle')ctx.arc(x+w/2,y+h/2,Math.min(w,h)/2,0,Math.PI*2);
-    else if(f.style==='oval')ctx.ellipse(x+w/2,y+h/2,w/2,h/2*.78,0,0,Math.PI*2);
-    else if(f.style==='cat'){if(side==='L'){ctx.moveTo(x,y+h*.72);ctx.quadraticCurveTo(x,y+h*.1,x+w*.25,y);ctx.lineTo(x+w,y-h*.18);ctx.quadraticCurveTo(x+w,y+h*.35,x+w*.7,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h*.72);}else{ctx.moveTo(x+w,y+h*.72);ctx.quadraticCurveTo(x+w,y+h*.1,x+w*.75,y);ctx.lineTo(x,y-h*.18);ctx.quadraticCurveTo(x,y+h*.35,x+w*.3,y+h);ctx.quadraticCurveTo(x+w,y+h,x+w,y+h*.72);}}
-    else if(f.style==='teardrop'){ctx.moveTo(x+w*.12,y);ctx.lineTo(x+w*.88,y);ctx.quadraticCurveTo(x+w,y,x+w,y+h*.32);ctx.quadraticCurveTo(x+w,y+h,x+w/2,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h*.32);ctx.quadraticCurveTo(x,y,x+w*.12,y);}
-    else if(f.style==='shield'){ctx.moveTo(x,y+h*.2);ctx.lineTo(x+w,y+h*.2);ctx.lineTo(x+w,y+h*.75);ctx.quadraticCurveTo(x+w,y+h,x+w/2,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h*.75);ctx.closePath();}
-    else if(f.style==='hexagon'){const r=Math.min(w,h)/2,cx2=x+w/2,cy2=y+h/2;for(let i=0;i<6;i++){const a=Math.PI/180*(60*i-30);i===0?ctx.moveTo(cx2+r*Math.cos(a),cy2+r*Math.sin(a)):ctx.lineTo(cx2+r*Math.cos(a),cy2+r*Math.sin(a));}ctx.closePath();}
-    else if(f.style==='pentagon'){const r=Math.min(w,h)/2,cx2=x+w/2,cy2=y+h/2;for(let i=0;i<5;i++){const a=Math.PI/180*(72*i-90);i===0?ctx.moveTo(cx2+r*Math.cos(a),cy2+r*Math.sin(a)):ctx.lineTo(cx2+r*Math.cos(a),cy2+r*Math.sin(a));}ctx.closePath();}
-    else if(f.style==='diamond'){ctx.moveTo(x+w/2,y);ctx.lineTo(x+w,y+h/2);ctx.lineTo(x+w/2,y+h);ctx.lineTo(x,y+h/2);ctx.closePath();}
-    else if(f.style==='browline'){ctx.moveTo(x,y+h*.35);ctx.lineTo(x,y+h);ctx.lineTo(x+w,y+h);ctx.lineTo(x+w,y+h*.35);ctx.quadraticCurveTo(x+w,y,x+w/2,y);ctx.quadraticCurveTo(x,y,x,y+h*.35);}
-    else if(f.style==='rimless'){ctx.setLineDash([3,3]);ctx.ellipse(x+w/2,y+h/2,w/2,h/2*.78,0,0,Math.PI*2);}
-    else if(f.style==='sport'){ctx.moveTo(x+w*.05,y);ctx.lineTo(x+w*.95,y);ctx.quadraticCurveTo(x+w,y,x+w,y+h*.45);ctx.lineTo(x+w*.55,y+h);ctx.lineTo(x+w*.45,y+h);ctx.lineTo(x,y+h*.45);ctx.quadraticCurveTo(x,y,x+w*.05,y);}
-    else if(f.style==='goggles')ctx.roundRect(x,y,w,h,h*.25);
-    else ctx.roundRect(x,y,w,h,f.rx||3);
+    if(frame.style==='circle')ctx.arc(x+w/2,y+h/2,Math.min(w,h)/2,0,Math.PI*2);
+    else if(frame.style==='oval')ctx.ellipse(x+w/2,y+h/2,w/2,h/2*.78,0,0,Math.PI*2);
+    else if(frame.style==='cat'){if(s==='L'){ctx.moveTo(x,y+h*.72);ctx.quadraticCurveTo(x,y+h*.1,x+w*.25,y);ctx.lineTo(x+w,y-h*.18);ctx.quadraticCurveTo(x+w,y+h*.35,x+w*.7,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h*.72);}else{ctx.moveTo(x+w,y+h*.72);ctx.quadraticCurveTo(x+w,y+h*.1,x+w*.75,y);ctx.lineTo(x,y-h*.18);ctx.quadraticCurveTo(x,y+h*.35,x+w*.3,y+h);ctx.quadraticCurveTo(x+w,y+h,x+w,y+h*.72);}}
+    else if(frame.style==='teardrop'){ctx.moveTo(x+w*.12,y);ctx.lineTo(x+w*.88,y);ctx.quadraticCurveTo(x+w,y,x+w,y+h*.32);ctx.quadraticCurveTo(x+w,y+h,x+w/2,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h*.32);ctx.quadraticCurveTo(x,y,x+w*.12,y);}
+    else if(frame.style==='hexagon'){const r=Math.min(w,h)/2,px=x+w/2,py=y+h/2;for(let i=0;i<6;i++){const a=Math.PI/180*(60*i-30);i===0?ctx.moveTo(px+r*Math.cos(a),py+r*Math.sin(a)):ctx.lineTo(px+r*Math.cos(a),py+r*Math.sin(a));}ctx.closePath();}
+    else if(frame.style==='pentagon'){const r=Math.min(w,h)/2,px=x+w/2,py=y+h/2;for(let i=0;i<5;i++){const a=Math.PI/180*(72*i-90);i===0?ctx.moveTo(px+r*Math.cos(a),py+r*Math.sin(a)):ctx.lineTo(px+r*Math.cos(a),py+r*Math.sin(a));}ctx.closePath();}
+    else if(frame.style==='diamond'){ctx.moveTo(x+w/2,y);ctx.lineTo(x+w,y+h/2);ctx.lineTo(x+w/2,y+h);ctx.lineTo(x,y+h/2);ctx.closePath();}
+    else if(frame.style==='browline'){ctx.moveTo(x,y+h*.35);ctx.lineTo(x,y+h);ctx.lineTo(x+w,y+h);ctx.lineTo(x+w,y+h*.35);ctx.quadraticCurveTo(x+w,y,x+w/2,y);ctx.quadraticCurveTo(x,y,x,y+h*.35);}
+    else if(frame.style==='rimless'){ctx.setLineDash([3,3]);ctx.ellipse(x+w/2,y+h/2,w/2,h/2*.78,0,0,Math.PI*2);}
+    else if(frame.style==='sport'){ctx.moveTo(x+w*.05,y);ctx.lineTo(x+w*.95,y);ctx.quadraticCurveTo(x+w,y,x+w,y+h*.45);ctx.lineTo(x+w*.55,y+h);ctx.lineTo(x+w*.45,y+h);ctx.lineTo(x,y+h*.45);ctx.quadraticCurveTo(x,y,x+w*.05,y);}
+    else if(frame.style==='goggles')ctx.roundRect(x,y,w,h,h*.25);
+    else ctx.roundRect(x,y,w,h,frame.rx||3);
     ctx.fill();ctx.stroke();ctx.setLineDash([]);
   }
-  if(f.style==='browline'){ctx.lineWidth=5.5;ctx.beginPath();ctx.moveTo(l1x,ly);ctx.quadraticCurveTo(l1x+lw/2,ly-lh*.22,l1x+lw,ly);ctx.stroke();ctx.beginPath();ctx.moveTo(l2x,ly);ctx.quadraticCurveTo(l2x+lw/2,ly-lh*.22,l2x+lw,ly);ctx.stroke();ctx.lineWidth=2.5;}
-  if(f.style==='shield'){ctx.beginPath();ctx.moveTo(l1x,ly+lh*.2);ctx.lineTo(l2x+lw,ly+lh*.2);ctx.lineTo(l2x+lw,ly+lh*.75);ctx.quadraticCurveTo(l2x+lw,ly+lh,(l1x+l2x+lw)/2,ly+lh);ctx.quadraticCurveTo(l1x,ly+lh,l1x,ly+lh*.75);ctx.closePath();ctx.fill();ctx.stroke();}
+  if(frame.style==='browline'){ctx.lineWidth=5.5;ctx.beginPath();ctx.moveTo(l1x,ly);ctx.quadraticCurveTo(l1x+lw/2,ly-lh*.22,l1x+lw,ly);ctx.stroke();ctx.beginPath();ctx.moveTo(l2x,ly);ctx.quadraticCurveTo(l2x+lw/2,ly-lh*.22,l2x+lw,ly);ctx.stroke();ctx.lineWidth=2.5;}
+  if(frame.style==='shield'){ctx.beginPath();ctx.moveTo(l1x,ly+lh*.2);ctx.lineTo(l2x+lw,ly+lh*.2);ctx.lineTo(l2x+lw,ly+lh*.75);ctx.quadraticCurveTo(l2x+lw,ly+lh,(l1x+l2x+lw)/2,ly+lh);ctx.quadraticCurveTo(l1x,ly+lh,l1x,ly+lh*.75);ctx.closePath();ctx.fill();ctx.stroke();}
   else{lens(l1x,ly,lw,lh,'L');lens(l2x,ly,lw,lh,'R');}
-  ctx.lineWidth=1.8;ctx.strokeStyle=f.color;
-  ctx.beginPath();ctx.moveTo(l1x+lw,cy-(f.style==='teardrop'?lh*.3:0));ctx.quadraticCurveTo(cx,cy-lh*.05,l2x,cy-(f.style==='teardrop'?lh*.3:0));ctx.stroke();
-  ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(l1x,cy);ctx.lineTo(0,cy);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(l2x+lw,cy);ctx.lineTo(W,cy);ctx.stroke();
+  ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(l1x+lw,cy-(frame.style==='teardrop'?lh*.3:0));ctx.quadraticCurveTo(cx,cy-lh*.05,l2x,cy-(frame.style==='teardrop'?lh*.3:0));ctx.stroke();
+  ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(l1x,cy);ctx.lineTo(0,cy);ctx.stroke();ctx.beginPath();ctx.moveTo(l2x+lw,cy);ctx.lineTo(W,cy);ctx.stroke();
 }
 
 function makeIcon(f){const c=document.createElement('canvas');c.width=104;c.height=40;c.className='frame-icon';drawGlasses(c.getContext('2d'),f,104,40);return c;}
-function makeOverlay(f){const c=document.createElement('canvas');c.width=512;c.height=200;drawGlasses(c.getContext('2d'),f,512,200);return c;}
 
-let overlay=null;
-function setStatus(cls,txt){document.getElementById('status-pill').className=cls;document.getElementById('status-text').textContent=txt;}
-function selectFrame(f){overlay=makeOverlay(f);document.querySelectorAll('.frame-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===f.id));}
+// ── GLOBALS ───────────────────────────────────────────────────────────────
+let curFrame=FRAMES[0];
+let videoEl,canvasEl,ctx2d;
+let faceMesh;
+let lastFaces=[];
 
-let currentCat='classic';
+function setSt(cls,t){document.getElementById('status-pill').className=cls;document.getElementById('stxt').textContent=t;}
+
+// ── RENDER ────────────────────────────────────────────────────────────────
+function renderFrame(){
+  if(!canvasEl||!videoEl||videoEl.readyState<2){requestAnimationFrame(renderFrame);return;}
+  canvasEl.width=window.innerWidth;canvasEl.height=window.innerHeight;
+  ctx2d.clearRect(0,0,canvasEl.width,canvasEl.height);
+
+  if(lastFaces.length>0){
+    document.getElementById('hint').classList.add('hidden');
+    setSt('ready','Face found');
+    const kp=lastFaces[0].keypoints;
+    placeGlasses(kp);
+  } else {
+    document.getElementById('hint').classList.remove('hidden');
+    setSt('looking','Looking…');
+  }
+  requestAnimationFrame(renderFrame);
+}
+
+// Key landmarks: left eye outer=33, right eye outer=263, nose tip=1, nose bridge=168
+function placeGlasses(kp){
+  const vW=videoEl.videoWidth||640,vH=videoEl.videoHeight||480;
+  const cW=canvasEl.width,cH=canvasEl.height;
+  const scX=cW/vW, scY=cH/vH;
+
+  function pt(i){
+    const p=kp[i];
+    // Mirror because video is CSS-mirrored
+    return {x:(vW-p.x)*scX, y:p.y*scY};
+  }
+
+  const le=pt(33),re=pt(263),nb=pt(168);
+  const eyeSpan=Math.abs(re.x-le.x);
+  const gW=eyeSpan*1.6;
+  const gH=gW*0.38;
+  const cx=(le.x+re.x)/2;
+  const cy=nb.y;
+  const angle=Math.atan2(re.y-le.y, re.x-le.x);
+
+  const off=document.createElement('canvas');
+  off.width=Math.max(1,Math.round(gW));
+  off.height=Math.max(1,Math.round(gH));
+  drawGlasses(off.getContext('2d'),curFrame,off.width,off.height);
+
+  ctx2d.save();
+  ctx2d.translate(cx,cy);
+  ctx2d.rotate(angle);
+  ctx2d.drawImage(off,-gW/2,-gH/2,gW,gH);
+  ctx2d.restore();
+}
+
+// ── MEDIAPIPE SETUP ───────────────────────────────────────────────────────
+async function startTracking(){
+  videoEl=document.getElementById('video');
+  canvasEl=document.getElementById('overlay');
+  ctx2d=canvasEl.getContext('2d');
+
+  // Start camera
+  const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:false});
+  videoEl.srcObject=stream;
+  videoEl.style.display='block';
+  await videoEl.play();
+
+  // Init MediaPipe FaceMesh
+  faceMesh=new FaceMesh({locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+  faceMesh.setOptions({maxNumFaces:1,refineLandmarks:false,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+  faceMesh.onResults((results)=>{
+    lastFaces=results.multiFaceLandmarks||[];
+  });
+
+  // Use MediaPipe Camera util
+  const mpCam=new Camera(videoEl,{
+    onFrame:async()=>{await faceMesh.send({image:videoEl});},
+    width:640,height:480
+  });
+  mpCam.start();
+
+  // Progress to 100 and hide loader
+  document.getElementById('load-bar').style.width='100%';
+  setTimeout(()=>{
+    const ls=document.getElementById('loading-screen');
+    ls.classList.add('fade');
+    setTimeout(()=>{ls.classList.remove('show');ls.classList.remove('fade');},700);
+  },500);
+
+  setSt('looking','Looking…');
+  buildUI();
+  renderFrame();
+}
+
+// ── UI ────────────────────────────────────────────────────────────────────
+let curCat='classic';
 function showCat(id){
   const row=document.getElementById('frames-row');row.innerHTML='';
-  ALL_FRAMES.filter(f=>f.cat===id).forEach(f=>{
-    const btn=document.createElement('div');btn.className='frame-btn';btn.dataset.id=f.id;
-    btn.appendChild(makeIcon(f));
-    const lbl=document.createElement('div');lbl.className='frame-name';lbl.textContent=f.name;
-    btn.appendChild(lbl);btn.addEventListener('click',()=>selectFrame(f));
-    row.appendChild(btn);
+  FRAMES.filter(f=>f.cat===id).forEach(f=>{
+    const b=document.createElement('div');b.className='frame-btn';b.dataset.id=f.id;
+    b.appendChild(makeIcon(f));
+    const l=document.createElement('div');l.className='frame-name';l.textContent=f.name;b.appendChild(l);
+    b.addEventListener('click',()=>{curFrame=f;document.querySelectorAll('.frame-btn').forEach(x=>x.classList.toggle('active',x.dataset.id===f.id));});
+    row.appendChild(b);
   });
 }
 function buildUI(){
-  CATEGORIES.forEach(cat=>{
-    const tab=document.createElement('div');tab.className='cat-tab'+(cat.id===currentCat?' active':'');tab.textContent=cat.label;
-    tab.addEventListener('click',()=>{currentCat=cat.id;document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');showCat(cat.id);});
-    document.getElementById('cat-tabs').appendChild(tab);
+  const ct=document.getElementById('cat-tabs');
+  CATS.forEach(c=>{
+    const t=document.createElement('div');t.className='cat-tab'+(c.id===curCat?' active':'');t.textContent=c.label;
+    t.addEventListener('click',()=>{curCat=c.id;document.querySelectorAll('.cat-tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');showCat(c.id);});
+    ct.appendChild(t);
   });
-  showCat(currentCat);
-}
-function revealAR(){
-  ['canvas','topbar','bottom-panel','hint','capture-btn'].forEach(id=>document.getElementById(id).classList.add('show'));
-  buildUI();selectFrame(ALL_FRAMES[0]);setStatus('looking','Looking…');
+  showCat(curCat);
 }
 
-let prog=0;
-function fakeBar(){const t=setInterval(()=>{if(prog<85){prog+=Math.random()*8;document.getElementById('load-bar').style.width=prog+'%';}else clearInterval(t);},300);}
+// ── FAKE BAR ──────────────────────────────────────────────────────────────
+let pg=0;
+function fakeBar(){const i=setInterval(()=>{if(pg<85){pg+=Math.random()*8;document.getElementById('load-bar').style.width=pg+'%';}else clearInterval(i);},300);}
 
-function initJeeliz(){
-  JEELIZGLASSESFILTER.init({
-    canvas:document.getElementById('canvas'),
-    NNCPath:'https://cdn.jsdelivr.net/npm/jeelizglassesfilter@1.2.4/dist/',
-    callbackReady:function(err){
-      if(err){document.getElementById('loading-screen').classList.remove('show');revealAR();document.getElementById('hint').innerHTML='<span id="hint-icon">⚠️</span><div id="hint-text" style="color:#e88;font-style:normal">Could not load face tracker.<br>Try refreshing.</div>';return;}
-      document.getElementById('load-bar').style.width='100%';
-      setTimeout(()=>{
-        document.getElementById('loading-screen').classList.add('fade');
-        setTimeout(()=>document.getElementById('loading-screen').classList.remove('show'),800);
-        revealAR();
-      },400);
-    },
-    callbackTrack:function(s){
-      if(!overlay)return;
-      if(s.detected>.7){
-        document.getElementById('hint').classList.add('hidden');
-        setStatus('ready','Face found');
-        const cv=document.getElementById('canvas'),ctx=cv.getContext('2d');
-        if(!ctx)return;
-        const W=cv.width,H=cv.height;
-        const x=(s.x+1)/2*W,y=(1-s.y)/2*H,sc=s.s*W*.55;
-        const gW=sc,gH=sc/(overlay.width/overlay.height);
-        ctx.save();ctx.translate(x,y);if(s.rz)ctx.rotate(-s.rz);
-        ctx.drawImage(overlay,-gW/2,-gH/2,gW,gH);ctx.restore();
-      }else{document.getElementById('hint').classList.remove('hidden');setStatus('looking','Looking…');}
-    }
-  });
-}
-
+// ── GATE ──────────────────────────────────────────────────────────────────
 document.getElementById('cam-btn').addEventListener('click',async()=>{
-  const btn=document.getElementById('cam-btn'),denied=document.getElementById('denied-msg');
+  const btn=document.getElementById('cam-btn'),den=document.getElementById('denied-msg');
   btn.textContent='Starting…';btn.disabled=true;
   try{
     const s=await navigator.mediaDevices.getUserMedia({video:true});
     s.getTracks().forEach(t=>t.stop());
-    document.getElementById('cam-gate').classList.add('gone');
+    document.getElementById('cam-gate').style.display='none';
     document.getElementById('loading-screen').classList.add('show');
     fakeBar();
-    initJeeliz();
-  }catch(e){btn.textContent='Enable Camera & Start';btn.disabled=false;denied.style.display='block';}
+    await startTracking();
+  }catch(e){
+    btn.textContent='Enable Camera & Start';btn.disabled=false;den.style.display='block';
+  }
 });
 
+// ── SCREENSHOT ────────────────────────────────────────────────────────────
 document.getElementById('capture-btn').addEventListener('click',()=>{
   const fl=document.getElementById('flash');fl.classList.add('on');setTimeout(()=>fl.classList.remove('on'),160);
-  const cv=document.getElementById('canvas');
-  if(cv){const a=document.createElement('a');a.download='tryon-'+Date.now()+'.png';a.href=cv.toDataURL('image/png');a.click();}
+  const out=document.createElement('canvas');out.width=window.innerWidth;out.height=window.innerHeight;
+  const c=out.getContext('2d');
+  c.save();c.scale(-1,1);c.drawImage(videoEl,-out.width,0,out.width,out.height);c.restore();
+  c.drawImage(canvasEl,0,0);
+  const a=document.createElement('a');a.download='tryon-'+Date.now()+'.png';a.href=out.toDataURL();a.click();
 });
+
+window.addEventListener('resize',()=>{if(canvasEl){canvasEl.width=window.innerWidth;canvasEl.height=window.innerHeight;}});
 </script>
 </body>
 </html>
